@@ -30,7 +30,7 @@ services:
     # al Registro de Contenedores de GitHub (GHCR) y desplegarla en la VM.
     # El nombre usa ${GITHUB_REPOSITORY} (variable de entorno) si existe;
     # si no, usa "login-app" como valor por defecto (sintaxis ${VAR:-default}).
-    image: ghcr.io/${GITHUB_REPOSITORY:-login-app}:latest
+    image: ghcr.io/${GITHUB_REPOSITORY:-devops-app}:latest
 
     # ports: publica el puerto hacia el host.
     # "3000:3000" = puerto del HOST:puerto del CONTENEDOR.
@@ -84,5 +84,5 @@ services:
 volumes:
   # Volumen "mongo-data": almacenamiento persistente para la BD.
   # docker compose lo crea automáticamente la primera vez.
-  # Ver con `docker volume ls`; el datos real viven en Docker, no en una carpeta.
+  # Ver con `docker volume ls`
   mongo-data:
