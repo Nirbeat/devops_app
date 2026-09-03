@@ -81,6 +81,11 @@ jobs:
       - name: Tests de integración
         run: npm run test:integration
 
+# Llegados este punto, y sin entrega continua, podmos usar Dockerhub para hacer
+# pública nuestra imagen
+#   -docker tag <nombre-app> <usuario>/<nombre-app>:<version>
+#   -docker push <usuario>/<nombre-app>:<version>
+
 # ###################ESTO LO HABILITAMOS MAS ADELANTE##############################
 #   # ------------------------------------------------------------------------------
 #   # JOB: "build-and-push" — ENTREGA CONTINUA (solo en main y tras pasar test)

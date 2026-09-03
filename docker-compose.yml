@@ -26,11 +26,17 @@ services:
     build: .
 
     # image: nombre/tag que recibe la imagen construida.
+    # Si usamos dockerhub
+    #   -image: <usuario>/<imagen>
+    image: devops-app-multistage:latest
+
+    # Si usamos el repo de imagenes de github
+    #   -image: ghcr.io/${GITHUB_REPOSITORY:-<nombre de la imagen>}:latest
     # usuario una imagen con tag "ghcr.io/...:latest" para poder hacer push
     # al Registro de Contenedores de GitHub (GHCR) y desplegarla en la VM.
     # El nombre usa ${GITHUB_REPOSITORY} (variable de entorno) si existe;
-    # si no, usa "login-app" como valor por defecto (sintaxis ${VAR:-default}).
-    image: ghcr.io/${GITHUB_REPOSITORY:-devops-app}:latest
+    # si no, usa el nombre de la app como valor por defecto 
+    # (sintaxis ${VAR:-default}).
 
     # ports: publica el puerto hacia el host.
     # "3000:3000" = puerto del HOST:puerto del CONTENEDOR.
