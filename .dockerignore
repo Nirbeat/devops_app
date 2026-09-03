@@ -1,0 +1,30 @@
+# ==============================================================================
+# .dockerignore — Contexto de build (qué NO se envía a Docker)
+# ==============================================================================
+# Cuando dices `docker build .`, Docker empaqueta la carpeta y la envía como
+# "contexto de build" al motor. Este archivo excluye archivos/carpetas para:
+#   - Que el build SEA MÁS RÁPIDO (envía menos datos).
+#   - Evitar fugas de archivos sensibles o innecesarios en la imagen.
+#
+# Importancia para este proyecto: al inicio, el contexto incluía un ISO de 2.9GB
+# y node_modules, por lo que el build transfería gigabytes. Una vez movida la
+# app a la carpeta /app y con este .dockerignore, el contexto es de ~1KB.
+# ==============================================================================
+
+# node_modules NO se copia: las dependencias se instalan dentro del contenedor
+# en la etapa builder (npm ci), por lo que llevarlas sería redundante y pesado.
+node_modules
+
+# .env contiene secretos (JWT_SECRET, credenciales). NUNCA debe ir a la imagen
+# ni al repositorio. Solo se inyecta en tiempo de ejecución vía env_file.
+.env
+
+# .git: el historial de git no aporta nada a la imagen.
+.git
+
+# El propio Dockerfile y .dockerignore no necesitan ir dentro de la imagen.
+Dockerfile
+.dockerignore
+
+# Logs de npm no son necesarios en el contenedor.
+npm-debug.log

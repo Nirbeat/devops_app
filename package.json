@@ -1,0 +1,30 @@
+{
+  "name": "login-app",
+  "version": "1.0.0",
+  "description": "Proyecto de login con Node, Express y MongoDB para clase de Docker y CI/CD",
+  "type": "module",
+  "main": "src/server.js",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "test": "mocha tests/unit tests/integration --timeout 20000",
+    "test:unit": "mocha tests/unit --timeout 20000",
+    "test:integration": "mocha tests/integration --timeout 20000"
+  },
+  "dependencies": {
+    "bcryptjs": "^2.4.3",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-validator": "^7.1.0",
+    "jsonwebtoken": "^9.0.2",
+    "mongoose": "^8.5.0"
+  },
+  "devDependencies": {
+    "chai": "^5.1.1",
+    "mocha": "^10.6.0",
+    "supertest": "^7.0.0"
+  }
+}

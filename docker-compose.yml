@@ -1,0 +1,88 @@
+# ==============================================================================
+# DOCKER-COMPOSE — Orquestación del stack (app + mongo)
+# ==============================================================================
+# docker-compose.yml describe y gestiona VARIOS contenedores como un solo stack.
+# En lugar de ejecutar muchos `docker run` a mano, definimos aquí los servicios,
+# las redes y los volúmenes, y con un solo comando levantamos todo.
+#
+# `docker compose up -d`  -> construye, crea y levanta todos los servicios.
+# `docker compose down -v` -> detiene todo y ELIMINA contenedores y volúmenes.
+#
+# Conceptos clave:
+#   - SERVICIO : un contenedor (o réplica) de un mismo rol/componente.
+#   - RED      : docker compose crea una red automáticamente donde cada servicio
+#                es accesible por su NOMBRE (ej: mongo). No usamos IPs.
+#   - VOLUMEN  : almacenamiento persistente que sobrevive a la vida del contenedor.
+# ==============================================================================
+
+services:
+  # ----------------------------------------------------------------------------
+  # SERVICIO "app" — contenedor de nuestra aplicación Node/Express
+  # ----------------------------------------------------------------------------
+  app:
+    # build: .  indica que la imagen se construye desde el Dockerfile
+    # del directorio actual. (El contexto de build es SOLO esta carpeta, /app,
+    # que es donde vive el proyecto tras reestructurarlo.)
+    build: .
+
+    # image: nombre/tag que recibe la imagen construida.
+    # usuario una imagen con tag "ghcr.io/...:latest" para poder hacer push
+    # al Registro de Contenedores de GitHub (GHCR) y desplegarla en la VM.
+    # El nombre usa ${GITHUB_REPOSITORY} (variable de entorno) si existe;
+    # si no, usa "login-app" como valor por defecto (sintaxis ${VAR:-default}).
+    image: ghcr.io/${GITHUB_REPOSITORY:-login-app}:latest
+
+    # ports: publica el puerto hacia el host.
+    # "3000:3000" = puerto del HOST:puerto del CONTENEDOR.
+    # Así, http://localhost:3000 -> puerto 3000 del contenedor app.
+    ports:
+      - "3000:3000"
+
+    # env_file: carga las variables de entorno desde el archivo .env
+    # (claves sensibles como JWT_SECRET NO se versionan en git).
+    env_file: .env
+
+    # environment: variables de entorno adicionales/fijadas para este servicio.
+    # IMPORTANTE: "mongodb://mongo:27017/login" — el host "mongo" es el NOMBRE
+    # del servicio de abajo. Gracias a la red de compose, "app" resuelve "mongo"
+    # como dirección del contenedor Mongo. NO usamos localhost.
+    environment:
+      - MONGO_URI=mongodb://mongo:27017/login
+
+    # depends_on: ordena el arranque. Espera a que el contenedor "mongo"
+    # exista (se cree/inicie) antes de iniciar "app". No garantiza que Mongo
+    # YA esté listo, solo que el contenedor arrancó.
+    depends_on:
+      - mongo
+
+    # restart: unless-stopped : si el contenedor se cae o la máquina se reinicia,
+    # Docker lo relanza automáticamente (a menos que lo detengas a mano).
+    # Ideal para producción / demostración en la VM.
+    restart: unless-stopped
+
+  # ----------------------------------------------------------------------------
+  # SERVICIO "mongo" — contenedor de la base de datos
+  # ----------------------------------------------------------------------------
+  mongo:
+    # image: usamos la imagen oficial MongoDB 7 directamente de Docker Hub,
+    # no necesitamos un Dockerfile propio para la base de datos.
+    image: mongo:7
+
+    # volumes: monta un volumen nombrado "mongo-data" en /data/db
+    # (directorio donde Mongo guarda sus datos).
+    # Es lo que hace que los datos PERSISTAN: aunque borremos el contenedor,
+    # los datos quedan en el volumen y sobreviven al recrear el servicio.
+    volumes:
+      - mongo-data:/data/db
+
+    # restart: lo mismo que en app — auto-reinicio si se cae.
+    restart: unless-stopped
+
+# ------------------------------------------------------------------------------
+# VOLÚMENES — declaración de los volúmenes NOMBRADOS usados por los servicios.
+# ------------------------------------------------------------------------------
+volumes:
+  # Volumen "mongo-data": almacenamiento persistente para la BD.
+  # docker compose lo crea automáticamente la primera vez.
+  # Ver con `docker volume ls`; el datos real viven en Docker, no en una carpeta.
+  mongo-data:

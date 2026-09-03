@@ -1,0 +1,148 @@
+# ==============================================================================
+# GITHUB ACTIONS — Pipeline de CI/CD
+# ==============================================================================
+# Este archivo se llama WORKFLOW. GitHub Actions lo lee automáticamente y lo
+# ejecuta en un servidor (runner) en la nube cada vez que ocurre el trigger.
+#
+# Flujo (CI/CD):
+#   1. CI (Integration Continuous): TEST — corre la suite en cada push/PR.
+#   2. CD (Delivery Continua)     : BUILD + PUSH — si los tests pasan y el push
+#      es a `main`, construye la imagen y la publica en GHCR (artefacto listo).
+#   3. DEPLOY es MANUAL: GitHub NO puede llegar a tu VM local (sin IP pública).
+#      Por eso publicamos la imagen en GHCR y TÚ la despliegas a mano en la VM
+#      con `docker compose pull && docker compose up -d`.
+#
+# Estructura:
+#   - name  : nombre visible del workflow (en la pestaña "Actions").
+#   - on    : eventos que disparan el pipeline (push/PR a main).
+#   - jobs  : lista de trabajos (tareas). Pueden correr en paralelo o en secuencia.
+#   - steps : pasos concretos dentro de cada job (checkout, test, build, push).
+# ==============================================================================
+
+name: CI/CD
+
+# ------------------------------------------------------------------------------
+# "on" — DISPARADORES (cuándo se ejecuta el pipeline)
+# ------------------------------------------------------------------------------
+on:
+  # Se activa cuando hay un push a la rama "main"
+  push:
+    branches: [main]
+
+# ------------------------------------------------------------------------------
+# JOB: "test" — INTEGRACIÓN CONTINUA (siempre)
+# ------------------------------------------------------------------------------
+jobs:
+  test:
+    # runs-on: tipo de máquina (runner) donde corre este job.
+    # ubuntu-latest = máquina Linux efímera provisionada por GitHub.
+    runs-on: ubuntu-latest
+
+    # services: levanta contenedores "de apoyo" para el job.
+    # Aquí levantamos un MongoDB TEMPORAL para los tests de integración,
+    # así los tests no dependen de tu Mongo local. Es como un docker compose
+    # efímero para la prueba.
+    services:
+      mongo:
+        image: mongo:7
+        # Exponemos el 27017 del contenedor Mongo al runner local.
+        ports:
+          - 27017:27017
+
+    # env: variables de entorno para este job.
+    # MONGO_URI_TEST apunta al Mongo del servicio (localhost en el runner).
+    # Sin esto, los tests de integración NO sabrían a qué BD conectarse.
+    env:
+      MONGO_URI_TEST: mongodb://localhost:27017/login_test
+      JWT_SECRET: test-secret
+
+    steps:
+      # actions/checkout@v4: descarga el código del repositorio al runner.
+      # Sin este paso no hay código sobre el cual trabajar.
+      - uses: actions/checkout@v4
+
+      # actions/setup-node@v4: instala/usa una versión específica de Node.
+      # cache: npm habilita el caché de node_modules → builds más rápidos.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # Instala dependencias EXACTAS desde package-lock.json (reproducible).
+      - name: Instalar dependencias
+        run: npm ci
+
+      # Corremos los tests unitarios (puros, sin BD).
+      - name: Tests unitarios
+        run: npm run test:unit
+
+      # Corremos los tests de integración contra el Mongo del servicio.
+      # Si aquí fallan, el job falla, el pipeline se detiene y NO se publica nada.
+      - name: Tests de integración
+        run: npm run test:integration
+
+  # ------------------------------------------------------------------------------
+  # JOB: "build-and-push" — ENTREGA CONTINUA (solo en main y tras pasar test)
+  # ------------------------------------------------------------------------------
+  build-and-push:
+    # needs: test : este job NO arranca hasta que el job "test" terminó OK.
+    # If el job "test" falla, esto NUNCA se ejecuta. Es la "puerta" del CI.
+    needs: test
+    # if: condición extra. Solo se ejecuta si el push fue a "main"
+    # (en PRs NO se publica la imagen, solo se testea).
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+
+    # permissions: permisos que le damos al token automático de GitHub.
+    #   contents: read  -> poder leer el código.
+    #   packages: write -> poder publicar (push) en GHCR.
+    # El token ${{ secrets.GITHUB_TOKEN }} se genera automáticamente por GitHub.
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      # Descargamos el código (igual que en test).
+      - uses: actions/checkout@v4
+
+      # setup-buildx-action: prepara BuildKit (motor de builds moderno de Docker)
+      # que permite construir imágenes multiplataforma. Lo usamos para hacer build.
+      - name: Configurar buildx
+        uses: docker/setup-buildx-action@v3
+
+      # login-action: nos autenticamos contra el Registro de Contenedores de
+      # GitHub (GHCR, registry ghcr.io) para poder hacer push de la imagen.
+      #   - username: github.actor -> el usuario que disparó el workflow.
+      #   - password: GITHUB_TOKEN -> token automático (no hace falta uno manual).
+      - name: Login a GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # build-push-action: construye la imagen DESDE nuestro Dockerfile y la
+      # SUBE (push: true) a GHCR con el tag ghcr.io/<repo>:latest.
+      # context: . -> el contexto de build es la carpeta actual (donde está app/).
+      # A partir de aquí el artefacto queda listo para el DEPLOY MANUAL.
+      - name: Construir y publicar imagen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ghcr.io/${{ github.repository }}:latest
+
+# ==============================================================================
+# NOTA DE CLASE — DEPLOY MANUAL a tu VM local
+# ==============================================================================
+# Después de que "build-and-push" publica ghcr.io/<usuario>/login-app:latest,
+# en tu VM local ejecutas a mano:
+#
+#   echo $TOKEN | docker login ghcr.io -u <usuario> --password-stdin
+#   docker compose pull     # descarga la última imagen publicada
+#   docker compose up -d    # levanta app + mongo
+#
+# Por qué manual: GitHub Actions (runner en la nube) NO puede conectarse a una
+# VM privada local sin IP pública/túnel o un self-hosted runner. El registro
+# GHCR actúa como "puente": GitHub produce el artefacto, tú lo despliegas.
+# ==============================================================================
