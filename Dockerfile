@@ -45,7 +45,7 @@
 # # CMD define el comando que se ejecuta cuando el contenedor ARRANCA.
 # # Formato JSON (array) = forma "exec", ejecuta node directamente sin shell.
 # # Aquí arrancamos el servidor.
-# # CMD ["node", "src/server.js"]
+# CMD ["node", "src/server.js"]
 
 # # ==============================================================================
 # # DOCKERFILE - Imagen básica más liviana

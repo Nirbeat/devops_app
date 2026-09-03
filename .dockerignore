@@ -6,9 +6,6 @@
 #   - Que el build SEA MÁS RÁPIDO (envía menos datos).
 #   - Evitar fugas de archivos sensibles o innecesarios en la imagen.
 #
-# Importancia para este proyecto: al inicio, el contexto incluía un ISO de 2.9GB
-# y node_modules, por lo que el build transfería gigabytes. Una vez movida la
-# app a la carpeta /app y con este .dockerignore, el contexto es de ~1KB.
 # ==============================================================================
 
 # node_modules NO se copia: las dependencias se instalan dentro del contenedor
@@ -21,6 +18,7 @@ node_modules
 
 # .git: el historial de git no aporta nada a la imagen.
 .git
+.gitignore
 
 # El propio Dockerfile y .dockerignore no necesitan ir dentro de la imagen.
 Dockerfile
