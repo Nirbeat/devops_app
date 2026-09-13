@@ -1,0 +1,168 @@
+# ==============================================================================
+# ARCHIVO DE DESPLIEGUE EN KUBERNETES (Equivalente a docker-compose.yml)
+# ==============================================================================
+# Para aplicar todos los recursos en tu clúster de Kubernetes:
+#   kubectl apply -f kubernetes.yaml
+#
+# Para ver el estado de los recursos:
+#   kubectl get all,pvc
+# ==============================================================================
+
+# ------------------------------------------------------------------------------
+# 1. PERSISTENCIA DE DATOS PARA MONGODB (Volumen mongo-data)
+# ------------------------------------------------------------------------------
+apiVersion: v1  # Versión de la API de Kubernetes para este objeto
+kind: PersistentVolumeClaim  # Tipo de recurso: solicitud de almacenamiento persistente
+metadata:  # Metadatos para identificar y describir el recurso
+  name: mongo-pvc  # Nombre único asignado a este recurso
+spec:  # Especificación del estado deseado para el recurso
+  accessModes:  # Modos de acceso y permisos de montaje del volumen
+    - ReadWriteOnce  # Permite lectura y escritura por un único nodo a la vez
+  resources:  # Solicitudes y límites de capacidad de almacenamiento
+    requests:  # Cantidad mínima garantizada de recursos requeridos
+      storage: 1Gi  # Capacidad de almacenamiento solicitada (1 Gibibyte)
+
+---
+# ------------------------------------------------------------------------------
+# 2. DESPLIEGUE DE MONGODB (Servicio mongo de docker-compose)
+# ------------------------------------------------------------------------------
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mongo-deployment
+  labels:  # Etiquetas clave-valor para organizar, agrupar y filtrar recursos
+    app: mongo
+spec:
+  replicas: 1  # Número de instancias idénticas (Pods) a mantener en ejecución
+  selector:  # Criterio para identificar qué Pods debe administrar este controlador
+    matchLabels:  # Regla de coincidencia exacta por etiquetas
+      app: mongo
+  template:  # Plantilla con la definición de los Pods a crear
+    metadata:
+      labels:
+        app: mongo
+    spec:
+      containers:  # Lista de contenedores que componen el Pod
+        - name: mongo
+          image: mongo:7  # Imagen de contenedor a descargar y ejecutar
+          ports:  # Lista de puertos que expone el contenedor
+            - containerPort: 27017  # Puerto interno donde escucha el proceso
+          volumeMounts:  # Puntos de montaje de volúmenes dentro del contenedor
+            - name: mongo-storage
+              mountPath: /data/db  # Ruta del sistema de archivos donde se monta el volumen
+      volumes:  # Definición de los volúmenes disponibles para el Pod
+        - name: mongo-storage
+          persistentVolumeClaim:  # Asocia el volumen a una solicitud PVC existente
+            claimName: mongo-pvc  # Nombre de la PVC vinculada
+
+---
+# ------------------------------------------------------------------------------
+# 3. SERVICIO INTERNO DE MONGODB
+# ------------------------------------------------------------------------------
+# Permite que la app se conecte usando el DNS interno: mongodb://mongo:27017/login
+apiVersion: v1
+kind: Service
+metadata:
+  name: mongo
+  labels:
+    app: mongo
+spec:
+  type: ClusterIP  # Tipo de servicio: IP interna accesible solo dentro del clúster
+  selector:
+    app: mongo
+  ports:
+    - protocol: TCP  # Protocolo de red de transporte (TCP o UDP)
+      port: 27017  # Puerto en el que el Servicio expone la conexión
+      targetPort: 27017  # Puerto del contenedor destino al que se redirige el tráfico
+
+---
+# ------------------------------------------------------------------------------
+# 4. CONFIGURACIÓN Y SECRETOS PARA LA APLICACIÓN
+# ------------------------------------------------------------------------------
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: app-config
+data:  # Pares clave-valor con datos de configuración no sensibles en texto plano
+  PORT: "3000"
+  MONGO_URI: "mongodb://mongo:27017/login"
+  JWT_EXPIRES_IN: "1d"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: app-secret
+type: Opaque
+stringData:  # Datos sensibles en texto plano (Kubernetes los codifica automáticamente a base64)
+  JWT_SECRET: "cambia-este-secreto-en-produccion"
+
+---
+# ------------------------------------------------------------------------------
+# 5. DESPLIEGUE DE LA APLICACIÓN NODE.JS (Servicio app de docker-compose)
+# ------------------------------------------------------------------------------
+# Se configuran 3 réplicas tal como se especifica en `deploy: replicas: 3`
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-deployment
+  labels:
+    app: node-app
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: node-app
+  template:
+    metadata:
+      labels:
+        app: node-app
+    spec:
+      containers:
+        - name: node-app
+          image: nirbeat/devops-app-usernode:latest
+          imagePullPolicy: IfNotPresent  # Política de descarga: solo descarga si la imagen no está localmente
+          ports:
+            - containerPort: 3000
+          env:  # Variables de entorno inyectadas al contenedor
+            - name: PORT
+              valueFrom:  # Origen dinámico del valor desde una fuente externa
+                configMapKeyRef:  # Referencia a una clave proveniente de un ConfigMap
+                  name: app-config
+                  key: PORT  # Nombre de la clave a extraer
+            - name: MONGO_URI
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: MONGO_URI
+            - name: JWT_EXPIRES_IN
+              valueFrom:
+                configMapKeyRef:
+                  name: app-config
+                  key: JWT_EXPIRES_IN
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:  # Referencia a una clave proveniente de un Secret
+                  name: app-secret
+                  key: JWT_SECRET
+
+---
+# ------------------------------------------------------------------------------
+# 6. SERVICIO EXTERNO PARA ACCEDER A LA APLICACIÓN
+# ------------------------------------------------------------------------------
+# Expone el puerto 3000 de los pods balanceando carga entre las 3 réplicas
+apiVersion: v1
+kind: Service
+metadata:
+  name: app-service
+  labels:
+    app: node-app
+spec:
+  type: NodePort
+  selector:
+    app: node-app
+  ports:
+    - protocol: TCP
+      port: 3000
+      targetPort: 3000
+      nodePort: 30000  # Puerto estático expuesto en los nodos para acceso externo (30000-32767)
