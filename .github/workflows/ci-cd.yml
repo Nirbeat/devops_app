@@ -5,16 +5,24 @@
 # ejecuta en un servidor (runner) en la nube cada vez que ocurre el trigger.
 #
 # Flujo (CI/CD):
-#   1. CI (Integration Continuous): TEST — corre la suite en cada push/PR.
-#   2. CD (Delivery Continua)     : BUILD + PUSH — si los tests pasan y el push
-#      es a `main`, construye la imagen y la publica en GHCR (artefacto listo).
-#   3. DEPLOY es MANUAL: GitHub NO puede llegar a tu VM local (sin IP pública).
-#      Por eso publicamos la imagen en GHCR y TÚ la despliegas a mano en la VM
-#      con `docker compose pull && docker compose up -d`.
+#   1. CI (Continuous Integration): TEST — corre la suite en cada push/PR.
+#   2. CD (Continuous Delivery)    : BUILD + PUSH — si los tests pasan y el push
+#      es a la rama de la demo (`gitops`), construye la imagen y la publica en
+#      GHCR (artefacto listo) con un tag ÚNICO = el SHA del commit.
+#   3. DEPLOY = GITOPS (automático): el mismo pipeline actualiza el archivo
+#      `kubernetes.yaml` en Git con esa imagen nueva, y **ArgoCD** (que vigila
+#      ese mismo repo) detecta el cambio en Git y despliega solo en el clúster.
+#
+# Por qué GitOS, y no "deploy a mano":
+#   - GitHub NO puede conectarse a una VM privada local sin IP pública.
+#   - Por eso el pipeline publica la imagen en GHCR (puente) y ademas escribe
+#     en el propio repo el manifiesto actualizado.
+#   - ArgoCD vigila Git (la "única fuente de verdad"). Cuando ve el commit con
+#     la imagen nueva, auto-sincroniza el clúster. A eso se le llama GITOPS.
 #
 # Estructura:
 #   - name  : nombre visible del workflow (en la pestaña "Actions").
-#   - on    : eventos que disparan el pipeline (push/PR a main).
+#   - on    : eventos que disparan el pipeline (push/PR a la rama gitops).
 #   - jobs  : lista de trabajos (tareas). Pueden correr en paralelo o en secuencia.
 #   - steps : pasos concretos dentro de cada job (checkout, test, build, push).
 # ==============================================================================
@@ -25,9 +33,11 @@ name: CI/CD
 # "on" — DISPARADORES (cuándo se ejecuta el pipeline)
 # ------------------------------------------------------------------------------
 on:
-  # Se activa cuando hay un push a la rama "main"
+  # Se activa cuando hay un push a la rama de la demo ("gitops").
+  # (En clase: cambiamos la rama para no ensuciar `main`; puedes volver a
+  #  poner `[main]` cuando quieras el flujo estandar.)
   push:
-    branches: [main]
+    branches: [gitops]
 
 # ------------------------------------------------------------------------------
 # JOB: "test" — INTEGRACIÓN CONTINUA (siempre)
@@ -81,74 +91,87 @@ jobs:
       - name: Tests de integración
         run: npm run test:integration
 
-# Llegados este punto, y sin entrega continua, podmos usar Dockerhub para hacer
-# pública nuestra imagen
-#   -docker tag <nombre-app> <usuario>/<nombre-app>:<version>
-#   -docker push <usuario>/<nombre-app>:<version>
+  # ------------------------------------------------------------------------------
+  # JOB: "build-and-push" — ENTREGA CONTINUA + GITOPS
+  # (solo en la rama gitops y tras pasar los tests)
+  # ------------------------------------------------------------------------------
+  build-and-push:
+    # needs: test : este job NO arranca hasta que el job "test" terminó OK.
+    # Si el job "test" falla, esto NUNCA se ejecuta. Es la "puerta" del CI.
+    needs: test
+    # if: condición extra. Solo se ejecuta si el push fue a la rama `gitops`
+    # y SI NO fue el propio bot (evita el bucle infinito del commit [skip ci]).
+    if: github.ref == 'refs/heads/gitops' && github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
 
-# ###################ESTO LO HABILITAMOS MAS ADELANTE##############################
-#   # ------------------------------------------------------------------------------
-#   # JOB: "build-and-push" — ENTREGA CONTINUA (solo en main y tras pasar test)
-#   # ------------------------------------------------------------------------------
-#   build-and-push:
-#     # needs: test : este job NO arranca hasta que el job "test" terminó OK.
-#     # If el job "test" falla, esto NUNCA se ejecuta. Es la "puerta" del CI.
-#     needs: test
-#     # if: condición extra. Solo se ejecuta si el push fue a "main"
-#     # (en PRs NO se publica la imagen, solo se testea).
-#     if: github.ref == 'refs/heads/main'
-#     runs-on: ubuntu-latest
+    # permissions: permisos que le damos al token automático de GitHub.
+    #   contents: write  -> poder LEER el código Y hacer commit/push del manifest.
+    #   packages: write  -> poder publicar (push) en GHCR.
+    # El token ${{ secrets.GITHUB_TOKEN }} se genera automáticamente por GitHub.
+    permissions:
+      contents: write
+      packages: write
 
-#     # permissions: permisos que le damos al token automático de GitHub.
-#     #   contents: read  -> poder leer el código.
-#     #   packages: write -> poder publicar (push) en GHCR.
-#     # El token ${{ secrets.GITHUB_TOKEN }} se genera automáticamente por GitHub.
-#     permissions:
-#       contents: read
-#       packages: write
+    steps:
+      # Descargamos el código (igual que en test).
+      - uses: actions/checkout@v4
 
-#     steps:
-#       # Descargamos el código (igual que en test).
-#       - uses: actions/checkout@v4
+      # setup-buildx-action: prepara BuildKit (motor de builds moderno de Docker)
+      # que permite construir imágenes multiplataforma. Lo usamos para hacer build.
+      - name: Configurar buildx
+        uses: docker/setup-buildx-action@v3
 
-#       # setup-buildx-action: prepara BuildKit (motor de builds moderno de Docker)
-#       # que permite construir imágenes multiplataforma. Lo usamos para hacer build.
-#       - name: Configurar buildx
-#         uses: docker/setup-buildx-action@v3
+      # login-action: nos autenticamos contra el Registro de Contenedores de
+      # GitHub (GHCR, registry ghcr.io) para poder hacer push de la imagen.
+      #   - username: github.actor -> el usuario que disparó el workflow.
+      #   - password: GITHUB_TOKEN -> token automático (no hace falta uno manual).
+      - name: Login a GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
-#       # login-action: nos autenticamos contra el Registro de Contenedores de
-#       # GitHub (GHCR, registry ghcr.io) para poder hacer push de la imagen.
-#       #   - username: github.actor -> el usuario que disparó el workflow.
-#       #   - password: GITHUB_TOKEN -> token automático (no hace falta uno manual).
-#       - name: Login a GHCR
-#         uses: docker/login-action@v3
-#         with:
-#           registry: ghcr.io
-#           username: ${{ github.actor }}
-#           password: ${{ secrets.GITHUB_TOKEN }}
+      # build-push-action: construye la imagen DESDE nuestro Dockerfile y la
+      # SUBE (push: true) a GHCR.
+      #   context: . -> el contexto de build es la carpeta actual del repo.
+      #   tags: ghcr.io/<owner>/devops-app:<SHA> -> tag ÚNICO por commit.
+      # El tag con SHA es CLAVE para GitOps: cada push produce una imagen
+      # distinta y además un cambio en Git (ArgoCD se entera).
+      - name: Construir y publicar imagen
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ghcr.io/nirbeat/devops-app:${{ github.sha }}
+            ghcr.io/nirbeat/devops-app:latest
 
-#       # build-push-action: construye la imagen DESDE nuestro Dockerfile y la
-#       # SUBE (push: true) a GHCR con el tag ghcr.io/<repo>:latest.
-#       # context: . -> el contexto de build es la carpeta actual (donde está app/).
-#       # A partir de aquí el artefacto queda listo para el DEPLOY MANUAL.
-#       - name: Construir y publicar imagen
-#         uses: docker/build-push-action@v6
-#         with:
-#           context: .
-#           push: true
-#           tags: ghcr.io/devops_app:latest
+      # COMPROMISO GITOPS: actualizamos la imagen en kubernetes.yaml y
+      # commiteamos el cambio EN Git. Este es el corazón del flujo:
+      # "Git siempre dice cuál es la versión verdadera".
+      - name: Actualizar kubernetes.yaml con la imagen nueva
+        run: |
+          sed -i "s#image: ghcr.io/nirbeat/devops-app:.*#image: ghcr.io/nirbeat/devops-app:${{ github.sha }}#g" kubernetes.yaml
 
-# # ==============================================================================
-# # NOTA DE CLASE — DEPLOY MANUAL a tu VM local
-# # ==============================================================================
-# # Después de que "build-and-push" publica ghcr.io/<usuario>/login-app:latest,
-# # en tu VM local ejecutas a mano:
-# #
-# #   echo $TOKEN | docker login ghcr.io -u <usuario> --password-stdin
-# #   docker compose pull     # descarga la última imagen publicada
-# #   docker compose up -d    # levanta app + mongo
-# #
-# # Por qué manual: GitHub Actions (runner en la nube) NO puede conectarse a una
-# # VM privada local sin IP pública/túnel o un self-hosted runner. El registro
-# # GHCR actúa como "puente": GitHub produce el artefacto, tú lo despliegas.
-# # ==============================================================================
+      # Volvemos a dejar el repo con el manifiesto al día. El mensaje lleva
+      # "[skip ci]" para que GitHub NO relance este workflow (anti-bucle).
+      - name: Commit y push del manifest actualizado
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add kubernetes.yaml
+          git commit -m "chore: desplegar imagen ghcr.io/nirbeat/devops-app:${{ github.sha }} [skip ci]" || echo "sin cambios"
+          git push origin HEAD:gitops
+
+# ------------------------------------------------------------------------------
+# NOTA DE CLASE — CÓMO CIERRA EL CICLO CON ARGOCD (GITOPS)
+# ------------------------------------------------------------------------------
+# 1. Haces push a `gitops`.
+# 2. GitHub corre: test -> build+push (GHCR con tag <SHA>) -> commit del manifest.
+# 3. ArgoCD (vivde instalado DENTRO de la VM, via bootstrap) vigila este repo,
+#    rama `gitops`. Ve el commit nuevo en kubernetes.yaml.
+# 4. ArgoCD auto-sincroniza (autoSync + selfHeal + prune): aplica la nueva
+#    imagen y el Deployment de Kubernetes hace roll-out. Tú NO tocas nada.
+# 5. Resultado en la VM: http://<ip-de-la-vm>:30000 queda actualizada sola.
+# ==============================================================================

@@ -120,7 +120,7 @@ spec:
     spec:
       containers:
         - name: node-app
-          image: nirbeat/devops-app-usernode:latest
+          image: ghcr.io/nirbeat/devops-app:latest
           imagePullPolicy: IfNotPresent  # Política de descarga: solo descarga si la imagen no está localmente
           ports:
             - containerPort: 3000

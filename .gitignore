@@ -1,5 +1,25 @@
+# --- NODE / app ---
 node_modules/
 .env
 npm-debug.log*
 coverage/
 .DS_Store
+
+# --- ROLLBACK LOCAL BUILDER (backups .gitops.bak, NO van a Git) ---
+*.gitops.bak
+*.bak
+
+# --- TERRAFORM: estados + tfvars (tfvars tiene ACCESS KEYS de AWS -> NUNCA) ---
+.terraform/
+terraform.tfstate
+terraform.tfstate.*
+*.tfvars
+*.tfvars.json
+crash.log
+override.tf.json
+override.tf
+
+# --- GENERADOS por el bootstrap (kubeconfig con IP de VM, url) ---
+kubeconfig-devops
+kubeconfig-*
+url.txt
