@@ -281,7 +281,7 @@ spec:
     path: .
     directory:
       recurse: false
-      exclude: '{docker-compose.yml,*.bak,*.md,*.tf}'
+      exclude: '{docker-compose.yml,*.bak,*.md,*.tf,*.json,Dockerfile,*.env*,provision-k8s.ps1,.gitignore,.dockerignore}'
   destination:
     server: https://kubernetes.default.svc
     namespace: default
@@ -292,7 +292,6 @@ spec:
       allowEmpty: false
     syncOptions:
       - CreateNamespace=true
-      - ServerSideApply=true
       - ApplyOutOfSyncOnly=true
 '@
 $appB64 = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($argoApp))
