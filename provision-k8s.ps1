@@ -233,7 +233,7 @@ if ($YamlFile) {
 
   Write-Output '== 7) Esperando deployments...'
   Invoke-Remote 'kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml rollout status deployment/mongo-deployment --timeout=600s' -TimeOut 900
-  Invoke-Remote 'kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml rollout status deployment/app-deployment --timeout=600s' -TimeOut 900
+  Invoke-Remote 'kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml rollout status deployment/app-deployment --timeout=900s' -TimeOut 1200
 }
 
 # ------------------------------------------------------------------------------
@@ -248,7 +248,7 @@ if ($YamlFile) {
 # y que se explique su existencia y función. La app la despliega k3s normal
 # (rollout status de arriba); ArgoCD queda instalado por si quieres mostrarlo.
 Write-Output '== 7b) Instalando ArgoCD (GitOps)...'
-Invoke-Remote 'kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml create namespace argocd' -TimeOut 120 $true 'creando namespace argocd'
+Invoke-Remote 'kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml create namespace argocd --dry-run=client -o yaml | kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply -f -' -TimeOut 120 $true 'creando namespace argocd (idempotente)'
 Invoke-Remote 'curl -sfL https://raw.githubusercontent.com/argoproj/argo-cd/v2.13.5/manifests/install.yaml -o /tmp/argocd-install.yaml' 300 $true 'descargando install.yaml de ArgoCD'
 Invoke-Remote 'kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml apply -n argocd -f /tmp/argocd-install.yaml' 300 $true 'aplicando ArgoCD'
 Invoke-Remote 'kubectl --kubeconfig /etc/rancher/k3s/k3s.yaml rollout status deployment/argocd-server -n argocd --timeout=300s' -TimeOut 420 $true 'esperando argocd-server'
