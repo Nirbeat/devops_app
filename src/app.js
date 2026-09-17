@@ -9,7 +9,7 @@ app.use('/api/auth', authRoutes);
 
 // Este endpoint está comentado para ser re-integrado en un commit
 app.get('/health', (req, res) => {
-  res.json({ status: 'ok', uptime: process.uptime(), update: "intento 2 ci-cd" });
+  res.json({ status: 'ok', uptime: process.uptime(), update: "intento 3 ci-cd" });
 });
 
 app.use((err, req, res, next) => {
