@@ -118,7 +118,7 @@ spec:
       labels:
         app: node-app
       annotations:  # Anotación de trazabilidad: el CI/CD la reescribe en CADA push
-        demos/version: "0.0.0-set-por-ci"  # El pipeline la cambia por el SHA del commit
+        demos/version: "54fe705f13886e3da88fa667f64524b61167c439"  # El pipeline la cambia por el SHA del commit
     spec:
       containers:
         - name: node-app
