@@ -147,12 +147,22 @@ jobs:
             ghcr.io/nirbeat/devops-app:${{ github.sha }}
             ghcr.io/nirbeat/devops-app:latest
 
-      # COMPROMISO GITOPS: actualizamos la imagen en kubernetes.yaml y
-      # commiteamos el cambio EN Git. Este es el corazón del flujo:
-      # "Git siempre dice cuál es la versión verdadera".
-      - name: Actualizar kubernetes.yaml con la imagen nueva
+      # COMPROMISO GITOPS: actualizamos kubernetes.yaml en Git y commiteamos.
+      # Este es el corazón del flujo: "Git siempre dice cuál es la versión".
+      #
+      # ¿Y por qué dejamos la imagen como `latest` fijo y NO la pinneamos al SHA?
+      #   - Pedagogía: en el manifiesto se lee SIEMPRE
+      #     `image: ghcr.io/nirbeat/devops-app:latest` → fácil de explicar.
+      #   - Para que ArgoCD detecte el cambio en CADA push, el CI escribe el
+      #     SHA del commit en la ANOTACIÓN `demos/version` del Deployment.
+      #     Cada push produce por lo tanto un diff real en kubernetes.yaml,
+      #     ArgoCD ve el commit nuevo, auto-sincroniza y, como el Deployment
+      #     usa `imagePullPolicy: Always`, los pods vuelven a bajar `latest`
+      #     desde GHCR (que ya quedó actualizada por el build-push de arriba).
+      - name: Actualizar kubernetes.yaml con la imagen/versión nueva
         run: |
-          sed -i "s#image: ghcr.io/nirbeat/devops-app:.*#image: ghcr.io/nirbeat/devops-app:${{ github.sha }}#g" kubernetes.yaml
+          sed -i "s#image: ghcr.io/nirbeat/devops-app:.*#image: ghcr.io/nirbeat/devops-app:latest#g" kubernetes.yaml
+          sed -i "s#demos/version: \".*\"#demos/version: \"${{ github.sha }}\"#g" kubernetes.yaml
 
       # Volvemos a dejar el repo con el manifiesto al día. El mensaje lleva
       # "[skip ci]" para que GitHub NO relance este workflow (anti-bucle).
@@ -161,17 +171,21 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add kubernetes.yaml
-          git commit -m "chore: desplegar imagen ghcr.io/nirbeat/devops-app:${{ github.sha }} [skip ci]" || echo "sin cambios"
+          git commit -m "chore: re-desplegar app (latest @ ${{ github.sha }}) [skip ci]" || echo "sin cambios"
           git push origin HEAD:gitops
 
 # ------------------------------------------------------------------------------
 # NOTA DE CLASE — CÓMO CIERRA EL CICLO CON ARGOCD (GITOPS)
 # ------------------------------------------------------------------------------
 # 1. Haces push a `gitops`.
-# 2. GitHub corre: test -> build+push (GHCR con tag <SHA>) -> commit del manifest.
+# 2. GitHub corre: test -> build+push (GHCR con tag <SHA> y también `latest`)
+#    -> actualiza kubernetes.yaml (la imagen queda `latest`; el SHA del commit
+#       queda en la anotación `demos/version`) -> commit con [skip ci].
 # 3. ArgoCD (vivde instalado DENTRO de la VM, via bootstrap) vigila este repo,
 #    rama `gitops`. Ve el commit nuevo en kubernetes.yaml.
-# 4. ArgoCD auto-sincroniza (autoSync + selfHeal + prune): aplica la nueva
-#    imagen y el Deployment de Kubernetes hace roll-out. Tú NO tocas nada.
+# 4. ArgoCD auto-sincroniza (autoSync + selfHeal + prune): aplica el nuevo
+#    manifiesto. Como el Deployment usa imagePullPolicy: Always, los pods
+#    vuelven a bajar `image: ghcr.io/nirbeat/devops-app:latest` desde GHCR
+#    (que el CI ya actualizó) y Kubernetes hace roll-out. Tú NO tocas nada.
 # 5. Resultado en la VM: http://<ip-de-la-vm>:30000 queda actualizada sola.
 # ==============================================================================
